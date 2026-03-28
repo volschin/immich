@@ -20,7 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
 
 # ORT build needs numpy for Python::NumPy CMake target
-RUN python3 -m pip install --break-system-packages --force-reinstall numpy packaging wheel setuptools
+RUN python3 -m pip install --break-system-packages --ignore-installed numpy packaging wheel setuptools
 
 RUN git clone --depth 1 --branch ${ORT_VERSION} --recurse-submodules --shallow-submodules \
     https://github.com/microsoft/onnxruntime.git /onnxruntime
