@@ -1,4 +1,5 @@
 # Override for DGX Spark: builds ML image locally with ARM64 CUDA support
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dgx-spark.yml up -d
 services:
   immich-machine-learning:
     build:

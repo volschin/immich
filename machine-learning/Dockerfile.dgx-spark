@@ -6,6 +6,7 @@
 # ---------------------------------------------------------------------------
 FROM nvidia/cuda:13.0.2-cudnn-devel-ubuntu24.04 AS builder-ort
 
+# renovate: datasource=github-tags depName=microsoft/onnxruntime
 ARG ORT_VERSION="v1.24.4"
 
 # Ubuntu 24.04 ships Python 3.12; install 3.11 from deadsnakes PPA
@@ -25,13 +26,12 @@ WORKDIR /onnxruntime
 
 # Patch: Remove 120 from ARCHITECTURES_WITH_ACCEL to avoid building sm_120a
 RUN sed -i 's/set(ARCHITECTURES_WITH_ACCEL "90" "100" "101" "120")/set(ARCHITECTURES_WITH_ACCEL "100" "101")/' \
-    cmake/CMakeLists.txt || true && \
+    cmake/CMakeLists.txt && \
     grep -r 'ARCHITECTURES_WITH_ACCEL' cmake/ | head -5
 
 RUN ./build.sh \
     --config Release \
     --build_wheel \
-    --build_shared_lib \
     --use_cuda \
     --cuda_home /usr/local/cuda \
     --cudnn_home /usr \
@@ -56,7 +56,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends g++ && \
     rm -rf /var/lib/apt/lists/*
 
-COPY --from=ghcr.io/astral-sh/uv:0.8.15 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.8.15@sha256:a5727064a0de127bdb7c9d3c1383f3a9ac307d9f2d8a391edc7896c54289ced0 /uv /uvx /bin/
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
