@@ -68,7 +68,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --extra cpu --no-dev --no-editable --no-install-project --compile-bytecode --no-progress --active --link-mode copy
 
 COPY --from=builder-ort /ort-wheel /ort-wheel
-RUN /opt/venv/bin/pip install --no-deps --force-reinstall /ort-wheel/onnxruntime_gpu-*.whl && \
+RUN uv pip install --no-deps --reinstall /ort-wheel/onnxruntime_gpu-*.whl && \
     rm -rf /ort-wheel
 
 # ---------------------------------------------------------------------------
