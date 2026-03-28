@@ -32,6 +32,7 @@ RUN sed -i 's/set(ARCHITECTURES_WITH_ACCEL "90" "100" "101" "120")/set(ARCHITECT
 RUN ./build.sh \
     --config Release \
     --build_wheel \
+    --allow_running_as_root \
     --use_cuda \
     --cuda_home /usr/local/cuda \
     --cudnn_home /usr \
