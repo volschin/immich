@@ -1,0 +1,114 @@
+# Dockerfile for DGX Spark (ARM64 + NVIDIA Blackwell GB10, CUDA 13.0)
+# Builds onnxruntime-gpu from source since no arm64 PyPI wheel exists.
+
+# ---------------------------------------------------------------------------
+# Stage 1: Build onnxruntime-gpu from source for ARM64 + Blackwell (SM_120)
+# ---------------------------------------------------------------------------
+FROM nvidia/cuda:13.0.2-cudnn-devel-ubuntu24.04 AS builder-ort
+
+ARG ORT_VERSION="v1.24.4"
+
+# Ubuntu 24.04 ships Python 3.12; install 3.11 from deadsnakes PPA
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    software-properties-common && \
+    add-apt-repository -y ppa:deadsnakes/ppa && \
+    apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 python3.11-dev python3.11-venv python3-pip \
+    cmake git g++ && \
+    rm -rf /var/lib/apt/lists/* && \
+    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
+
+RUN git clone --depth 1 --branch ${ORT_VERSION} --recurse-submodules --shallow-submodules \
+    https://github.com/microsoft/onnxruntime.git /onnxruntime
+
+WORKDIR /onnxruntime
+
+# Patch: Remove 120 from ARCHITECTURES_WITH_ACCEL to avoid building sm_120a
+RUN sed -i 's/set(ARCHITECTURES_WITH_ACCEL "90" "100" "101" "120")/set(ARCHITECTURES_WITH_ACCEL "100" "101")/' \
+    cmake/CMakeLists.txt || true && \
+    grep -r 'ARCHITECTURES_WITH_ACCEL' cmake/ | head -5
+
+RUN ./build.sh \
+    --config Release \
+    --build_wheel \
+    --build_shared_lib \
+    --use_cuda \
+    --cuda_home /usr/local/cuda \
+    --cudnn_home /usr \
+    --cuda_version 13.0 \
+    --parallel \
+    --cmake_extra_defines \
+      CMAKE_CUDA_ARCHITECTURES=120 \
+      onnxruntime_USE_FLASH_ATTENTION=OFF \
+    --skip_tests
+
+RUN mkdir /ort-wheel && cp build/Linux/Release/dist/onnxruntime_gpu-*.whl /ort-wheel/
+
+# ---------------------------------------------------------------------------
+# Stage 2: Install Immich ML Python deps + custom ORT wheel
+# ---------------------------------------------------------------------------
+FROM python:3.11-bookworm AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    VIRTUAL_ENV=/opt/venv
+
+RUN apt-get update && apt-get install -y --no-install-recommends g++ && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=ghcr.io/astral-sh/uv:0.8.15 /uv /uvx /bin/
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --frozen --extra cpu --no-dev --no-editable --no-install-project --compile-bytecode --no-progress --active --link-mode copy
+
+COPY --from=builder-ort /ort-wheel /ort-wheel
+RUN /opt/venv/bin/pip install --no-deps --force-reinstall /ort-wheel/onnxruntime_gpu-*.whl && \
+    rm -rf /ort-wheel
+
+# ---------------------------------------------------------------------------
+# Stage 3: Minimal production image
+# ---------------------------------------------------------------------------
+FROM nvidia/cuda:13.0.2-cudnn-runtime-ubuntu24.04 AS prod
+
+COPY --from=builder /usr/local/bin/python3 /usr/local/bin/python3
+COPY --from=builder /usr/local/bin/python3.11 /usr/local/bin/python3.11
+COPY --from=builder /usr/local/lib/python3.11 /usr/local/lib/python3.11
+COPY --from=builder /usr/local/lib/libpython3.11.so* /usr/local/lib/
+RUN ldconfig
+
+ENV LD_PRELOAD=/usr/lib/libmimalloc.so.2 \
+    MACHINE_LEARNING_MODEL_ARENA=false
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends tini ccache libgl1 libglib2.0-0 libgomp1 libmimalloc2.0 && \
+    apt-get autoremove -yqq && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN ln -s "/usr/lib/$(arch)-linux-gnu/libmimalloc.so.2" /usr/lib/libmimalloc.so.2
+
+WORKDIR /usr/src
+ENV TRANSFORMERS_CACHE=/cache \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/opt/venv/bin:$PATH" \
+    PYTHONPATH=/usr/src \
+    DEVICE=cuda \
+    VIRTUAL_ENV=/opt/venv \
+    MACHINE_LEARNING_CACHE_FOLDER=/cache
+
+# prevent core dumps
+RUN echo "hard core 0" >> /etc/security/limits.conf && \
+    echo "fs.suid_dumpable 0" >> /etc/sysctl.conf && \
+    echo 'ulimit -S -c 0 > /dev/null 2>&1' >> /etc/profile
+
+COPY --from=builder /opt/venv /opt/venv
+COPY scripts/healthcheck.py .
+COPY immich_ml immich_ml
+
+ENTRYPOINT ["tini", "--"]
+CMD ["python", "-m", "immich_ml"]
+
+HEALTHCHECK CMD python3 healthcheck.py
