@@ -1,0 +1,10 @@
+# Override for DGX Spark: builds ML image locally with ARM64 CUDA support
+services:
+  immich-machine-learning:
+    build:
+      context: ../machine-learning
+      dockerfile: Dockerfile.dgx-spark
+    image: immich-ml-dgx-spark:latest
+    extends:
+      file: hwaccel.ml.yml
+      service: cuda
