@@ -42,7 +42,7 @@ RUN ./build.sh \
     --cuda_version 13.0 \
     --parallel \
     --cmake_extra_defines \
-      CMAKE_CUDA_ARCHITECTURES=120 \
+      CMAKE_CUDA_ARCHITECTURES=121 \
       onnxruntime_USE_FLASH_ATTENTION=OFF \
     --skip_tests
 
