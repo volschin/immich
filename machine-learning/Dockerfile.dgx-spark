@@ -28,7 +28,7 @@ RUN git clone --depth 1 --branch ${ORT_VERSION} --recurse-submodules --shallow-s
 WORKDIR /onnxruntime
 
 # Patch: Remove 120 from ARCHITECTURES_WITH_ACCEL to avoid building sm_120a
-RUN sed -i 's/set(ARCHITECTURES_WITH_ACCEL "90" "100" "101" "120")/set(ARCHITECTURES_WITH_ACCEL "100" "101")/' \
+RUN sed -i 's/set(ARCHITECTURES_WITH_ACCEL "90" "100" "101" "120")/set(ARCHITECTURES_WITH_ACCEL "100" "101" "122")/' \
     cmake/CMakeLists.txt && \
     grep -r 'ARCHITECTURES_WITH_ACCEL' cmake/ | head -5
 
