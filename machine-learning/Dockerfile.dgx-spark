@@ -32,6 +32,77 @@ RUN sed -i 's/set(ARCHITECTURES_WITH_ACCEL "90" "100" "101" "120")/set(ARCHITECT
     cmake/CMakeLists.txt && \
     grep -r 'ARCHITECTURES_WITH_ACCEL' cmake/ | head -5
 
+# Patch device_discovery.cc for DGX Spark GB10 (SoC GPU, no PCI vendor in sysfs).
+#
+# Fix 1: Skip DRM cards with missing sysfs vendor files (continue instead of
+#         abort). This lets gpu_devices stay empty so the PCI fallback runs.
+# Fix 2: After PCI fallback also finds nothing (GB10 has no PCI bus entry),
+#         synthesize an NVIDIA GPU device when /dev/nvidia0 exists so CUDA EP
+#         can register itself.
+RUN python3 - << 'PYEOF'
+import sys
+
+path = "onnxruntime/core/platform/linux/device_discovery.cc"
+with open(path) as f:
+    src = f.read()
+
+# Fix 1: skip DRM cards that have no sysfs vendor file
+old1 = (
+    "  for (const auto& gpu_sysfs_path_info : gpu_sysfs_path_infos) {\n"
+    "    OrtHardwareDevice gpu_device{};\n"
+    "    ORT_RETURN_IF_ERROR(GetGpuDeviceFromSysfs(gpu_sysfs_path_info, gpu_device));\n"
+    "    gpu_devices.emplace_back(std::move(gpu_device));\n"
+    "  }"
+)
+new1 = (
+    "  for (const auto& gpu_sysfs_path_info : gpu_sysfs_path_infos) {\n"
+    "    OrtHardwareDevice gpu_device{};\n"
+    "    auto sysfs_status = GetGpuDeviceFromSysfs(gpu_sysfs_path_info, gpu_device);\n"
+    "    if (!sysfs_status.IsOK()) {\n"
+    "      LOGS_DEFAULT(WARNING) << \"Skipping DRM card (no sysfs vendor info): \"\n"
+    "                            << sysfs_status.ErrorMessage();\n"
+    "      continue;\n"
+    "    }\n"
+    "    gpu_devices.emplace_back(std::move(gpu_device));\n"
+    "  }"
+)
+if old1 not in src:
+    print("ERROR: Fix-1 pattern not found — check ORT version", file=sys.stderr)
+    sys.exit(1)
+src = src.replace(old1, new1, 1)
+print("Fix 1 applied: DRM skip-on-error")
+
+# Fix 2: /dev/nvidia0 fallback after PCI scan also returns empty
+nvidia_fallback = (
+    "\n"
+    "  // Fallback for SoC/platform GPUs (e.g. DGX Spark GB10) that have neither\n"
+    "  // DRM sysfs vendor entries nor a PCI bus representation.\n"
+    "  // If /dev/nvidia0 exists the NVIDIA kernel driver is present; synthesize a\n"
+    "  // minimal OrtHardwareDevice so the CUDA EP can register itself.\n"
+    "  if (gpu_devices.empty()) {\n"
+    "    std::error_code _ec{};\n"
+    "    if (fs::exists(\"/dev/nvidia0\", _ec)) {\n"
+    "      LOGS_DEFAULT(WARNING) << \"/dev/nvidia0 found but no GPU in sysfs/PCI — \"\n"
+    "                            << \"adding synthetic NVIDIA GPU device for SoC GPU.\";\n"
+    "      OrtHardwareDevice nvidia_gpu{};\n"
+    "      nvidia_gpu.vendor_id = 0x10de;\n"
+    "      nvidia_gpu.type = OrtHardwareDeviceType_GPU;\n"
+    "      gpu_devices.emplace_back(std::move(nvidia_gpu));\n"
+    "    }\n"
+    "  }\n"
+)
+anchor = "  gpu_devices_out = std::move(gpu_devices);\n  return Status::OK();\n}"
+if anchor not in src:
+    print("ERROR: Fix-2 anchor not found — check ORT version", file=sys.stderr)
+    sys.exit(1)
+src = src.replace(anchor, nvidia_fallback + anchor, 1)
+print("Fix 2 applied: /dev/nvidia0 synthetic device fallback")
+
+with open(path, "w") as f:
+    f.write(src)
+print("device_discovery.cc patched successfully")
+PYEOF
+
 RUN ./build.sh \
     --config Release \
     --build_wheel \
@@ -68,7 +139,12 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --extra cpu --no-dev --no-editable --no-install-project --compile-bytecode --no-progress --active --link-mode copy
 
 COPY --from=builder-ort /ort-wheel /ort-wheel
-RUN uv pip install --no-deps --reinstall /ort-wheel/onnxruntime_gpu-*.whl && \
+# Uninstall the CPU onnxruntime installed by uv sync before putting in our
+# custom GPU wheel. onnxruntime and onnxruntime-gpu are different package
+# names — --reinstall alone leaves the CPU .so files in place, and Python
+# loads the old unpatched cpython extension instead of the GPU one.
+RUN uv pip uninstall onnxruntime onnxruntime-gpu 2>/dev/null || true && \
+    uv pip install --no-deps /ort-wheel/onnxruntime_gpu-*.whl && \
     rm -rf /ort-wheel
 
 # ---------------------------------------------------------------------------
