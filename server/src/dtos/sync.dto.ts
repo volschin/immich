@@ -1,7 +1,8 @@
-/* eslint-disable @typescript-eslint/no-unsafe-function-type */
 import { createZodDto } from 'nestjs-zod';
+import { ExtraModel } from 'src/decorators';
 import { AssetEditActionSchema } from 'src/dtos/editing.dto';
 import {
+  AlbumUserRole,
   AlbumUserRoleSchema,
   AssetOrderSchema,
   AssetTypeSchema,
@@ -15,15 +16,6 @@ import {
 } from 'src/enum';
 import { isoDatetimeToDate } from 'src/validation';
 import z from 'zod';
-
-export const extraSyncModels: Function[] = [];
-
-const ExtraModel = (): ClassDecorator => {
-  // eslint-disable-next-line unicorn/consistent-function-scoping
-  return (object: Function) => {
-    extraSyncModels.push(object);
-  };
-};
 
 const SyncUserV1Schema = z
   .object({
@@ -74,6 +66,7 @@ const SyncAssetV1Schema = z
     checksum: z.string().describe('Checksum'),
     fileCreatedAt: isoDatetimeToDate.nullable().describe('File created at'),
     fileModifiedAt: isoDatetimeToDate.nullable().describe('File modified at'),
+    createdAt: isoDatetimeToDate.nullable().describe('Uploaded to Immich at'),
     localDateTime: isoDatetimeToDate.nullable().describe('Local date time'),
     duration: z.string().nullable().describe('Duration'),
     type: AssetTypeSchema,
@@ -89,6 +82,31 @@ const SyncAssetV1Schema = z
   })
   .meta({ id: 'SyncAssetV1' });
 
+const SyncAssetV2Schema = z
+  .object({
+    id: z.string().describe('Asset ID'),
+    ownerId: z.string().describe('Owner ID'),
+    originalFileName: z.string().describe('Original file name'),
+    thumbhash: z.string().nullable().describe('Thumbhash'),
+    checksum: z.string().describe('Checksum'),
+    fileCreatedAt: isoDatetimeToDate.nullable().describe('File created at'),
+    fileModifiedAt: isoDatetimeToDate.nullable().describe('File modified at'),
+    createdAt: isoDatetimeToDate.nullable().describe('Uploaded to Immich at'),
+    localDateTime: isoDatetimeToDate.nullable().describe('Local date time'),
+    duration: z.int32().min(0).nullable().describe('Duration'),
+    type: AssetTypeSchema,
+    deletedAt: isoDatetimeToDate.nullable().describe('Deleted at'),
+    isFavorite: z.boolean().describe('Is favorite'),
+    visibility: AssetVisibilitySchema,
+    livePhotoVideoId: z.string().nullable().describe('Live photo video ID'),
+    stackId: z.string().nullable().describe('Stack ID'),
+    libraryId: z.string().nullable().describe('Library ID'),
+    width: z.int().nullable().describe('Asset width'),
+    height: z.int().nullable().describe('Asset height'),
+    isEdited: z.boolean().describe('Is edited'),
+  })
+  .meta({ id: 'SyncAssetV2' });
+
 @ExtraModel()
 class SyncUserV1 extends createZodDto(SyncUserV1Schema) {}
 @ExtraModel()
@@ -101,6 +119,8 @@ class SyncPartnerV1 extends createZodDto(SyncPartnerV1Schema) {}
 class SyncPartnerDeleteV1 extends createZodDto(SyncPartnerDeleteV1Schema) {}
 @ExtraModel()
 export class SyncAssetV1 extends createZodDto(SyncAssetV1Schema) {}
+@ExtraModel()
+export class SyncAssetV2 extends createZodDto(SyncAssetV2Schema) {}
 
 const SyncAssetDeleteV1Schema = z
   .object({ assetId: z.string().describe('Asset ID') })
@@ -211,6 +231,19 @@ const SyncAlbumV1Schema = z
   })
   .meta({ id: 'SyncAlbumV1' });
 
+const SyncAlbumV2Schema = z
+  .object({
+    id: z.string().describe('Album ID'),
+    name: z.string().describe('Album name'),
+    description: z.string().describe('Album description'),
+    createdAt: isoDatetimeToDate.describe('Created at'),
+    updatedAt: isoDatetimeToDate.describe('Updated at'),
+    thumbnailAssetId: z.string().nullable().describe('Thumbnail asset ID'),
+    isActivityEnabled: z.boolean().describe('Is activity enabled'),
+    order: AssetOrderSchema,
+  })
+  .meta({ id: 'SyncAlbumV2' });
+
 const SyncAlbumToAssetV1Schema = z
   .object({
     albumId: z.string().describe('Album ID'),
@@ -234,9 +267,20 @@ class SyncAlbumUserV1 extends createZodDto(SyncAlbumUserV1Schema) {}
 @ExtraModel()
 class SyncAlbumV1 extends createZodDto(SyncAlbumV1Schema) {}
 @ExtraModel()
+class SyncAlbumV2 extends createZodDto(SyncAlbumV2Schema) {}
+@ExtraModel()
 class SyncAlbumToAssetV1 extends createZodDto(SyncAlbumToAssetV1Schema) {}
 @ExtraModel()
 class SyncAlbumToAssetDeleteV1 extends createZodDto(SyncAlbumToAssetDeleteV1Schema) {}
+
+export function syncAlbumV2ToV1(
+  albumV2: SyncAlbumV2,
+  albumUsers: { userId: string; role: AlbumUserRole }[],
+): SyncAlbumV1 {
+  const owner = albumUsers.find(({ role }) => role === AlbumUserRole.Owner)!;
+
+  return { ...albumV2, ownerId: owner.userId };
+}
 
 const SyncMemoryV1Schema = z
   .object({
@@ -357,6 +401,41 @@ class SyncMemoryDeleteV1 extends createZodDto(SyncMemoryDeleteV1Schema) {}
 class SyncMemoryAssetV1 extends createZodDto(SyncMemoryAssetV1Schema) {}
 @ExtraModel()
 class SyncMemoryAssetDeleteV1 extends createZodDto(SyncMemoryAssetDeleteV1Schema) {}
+
+const SyncAssetOcrV1Schema = z
+  .object({
+    id: z.string().describe('OCR entry ID'),
+    assetId: z.string().describe('Asset ID'),
+
+    x1: z.number().meta({ format: 'double' }).describe('Top-left X coordinate (normalized 0–1)'),
+    y1: z.number().meta({ format: 'double' }).describe('Top-left Y coordinate (normalized 0–1)'),
+    x2: z.number().meta({ format: 'double' }).describe('Top-right X coordinate (normalized 0–1)'),
+    y2: z.number().meta({ format: 'double' }).describe('Top-right Y coordinate (normalized 0–1)'),
+    x3: z.number().meta({ format: 'double' }).describe('Bottom-right X coordinate (normalized 0–1)'),
+    y3: z.number().meta({ format: 'double' }).describe('Bottom-right Y coordinate (normalized 0–1)'),
+    x4: z.number().meta({ format: 'double' }).describe('Bottom-left X coordinate (normalized 0–1)'),
+    y4: z.number().meta({ format: 'double' }).describe('Bottom-left Y coordinate (normalized 0–1)'),
+
+    boxScore: z.number().meta({ format: 'double' }).describe('Confidence score of the bounding box'),
+    textScore: z.number().meta({ format: 'double' }).describe('Confidence score of the recognized text'),
+    text: z.string().describe('Recognized text content'),
+    isVisible: z.boolean().describe('Whether the OCR entry is visible'),
+  })
+  .meta({ id: 'SyncAssetOcrV1' });
+
+const SyncAssetOcrDeleteV1Schema = z
+  .object({
+    id: z.string().describe('Audit row ID of the deleted OCR entry'),
+    assetId: z.string().describe('Original asset ID of the deleted OCR entry'),
+    deletedAt: isoDatetimeToDate.describe('Timestamp when the OCR entry was deleted'),
+  })
+  .meta({ id: 'SyncAssetOcrDeleteV1' });
+
+@ExtraModel()
+class SyncAssetOcrV1 extends createZodDto(SyncAssetOcrV1Schema) {}
+
+@ExtraModel()
+class SyncAssetOcrDeleteV1 extends createZodDto(SyncAssetOcrDeleteV1Schema) {}
 @ExtraModel()
 class SyncStackV1 extends createZodDto(SyncStackV1Schema) {}
 @ExtraModel()
@@ -369,12 +448,6 @@ class SyncPersonDeleteV1 extends createZodDto(SyncPersonDeleteV1Schema) {}
 class SyncAssetFaceV1 extends createZodDto(SyncAssetFaceV1Schema) {}
 @ExtraModel()
 class SyncAssetFaceV2 extends createZodDto(SyncAssetFaceV2Schema) {}
-
-export function syncAssetFaceV2ToV1(faceV2: SyncAssetFaceV2): SyncAssetFaceV1 {
-  const { deletedAt: _, isVisible: __, ...faceV1 } = faceV2;
-
-  return faceV1;
-}
 @ExtraModel()
 class SyncAssetFaceDeleteV1 extends createZodDto(SyncAssetFaceDeleteV1Schema) {}
 @ExtraModel()
@@ -394,26 +467,29 @@ export type SyncItem = {
   [SyncEntityType.UserDeleteV1]: SyncUserDeleteV1;
   [SyncEntityType.PartnerV1]: SyncPartnerV1;
   [SyncEntityType.PartnerDeleteV1]: SyncPartnerDeleteV1;
-  [SyncEntityType.AssetV1]: SyncAssetV1;
+  [SyncEntityType.AssetV2]: SyncAssetV2;
   [SyncEntityType.AssetDeleteV1]: SyncAssetDeleteV1;
   [SyncEntityType.AssetMetadataV1]: SyncAssetMetadataV1;
   [SyncEntityType.AssetMetadataDeleteV1]: SyncAssetMetadataDeleteV1;
   [SyncEntityType.AssetExifV1]: SyncAssetExifV1;
+  [SyncEntityType.AssetOcrV1]: SyncAssetOcrV1;
+  [SyncEntityType.AssetOcrDeleteV1]: SyncAssetOcrDeleteV1;
   [SyncEntityType.AssetEditV1]: SyncAssetEditV1;
   [SyncEntityType.AssetEditDeleteV1]: SyncAssetEditDeleteV1;
-  [SyncEntityType.PartnerAssetV1]: SyncAssetV1;
-  [SyncEntityType.PartnerAssetBackfillV1]: SyncAssetV1;
+  [SyncEntityType.PartnerAssetV2]: SyncAssetV2;
+  [SyncEntityType.PartnerAssetBackfillV2]: SyncAssetV2;
   [SyncEntityType.PartnerAssetDeleteV1]: SyncAssetDeleteV1;
   [SyncEntityType.PartnerAssetExifV1]: SyncAssetExifV1;
   [SyncEntityType.PartnerAssetExifBackfillV1]: SyncAssetExifV1;
   [SyncEntityType.AlbumV1]: SyncAlbumV1;
+  [SyncEntityType.AlbumV2]: SyncAlbumV2;
   [SyncEntityType.AlbumDeleteV1]: SyncAlbumDeleteV1;
   [SyncEntityType.AlbumUserV1]: SyncAlbumUserV1;
   [SyncEntityType.AlbumUserBackfillV1]: SyncAlbumUserV1;
   [SyncEntityType.AlbumUserDeleteV1]: SyncAlbumUserDeleteV1;
-  [SyncEntityType.AlbumAssetCreateV1]: SyncAssetV1;
-  [SyncEntityType.AlbumAssetUpdateV1]: SyncAssetV1;
-  [SyncEntityType.AlbumAssetBackfillV1]: SyncAssetV1;
+  [SyncEntityType.AlbumAssetCreateV2]: SyncAssetV2;
+  [SyncEntityType.AlbumAssetUpdateV2]: SyncAssetV2;
+  [SyncEntityType.AlbumAssetBackfillV2]: SyncAssetV2;
   [SyncEntityType.AlbumAssetExifCreateV1]: SyncAssetExifV1;
   [SyncEntityType.AlbumAssetExifUpdateV1]: SyncAssetExifV1;
   [SyncEntityType.AlbumAssetExifBackfillV1]: SyncAssetExifV1;

@@ -33,12 +33,6 @@ export interface ReverseGeocodeResult {
   city: string | null;
 }
 
-export interface MapMarker extends ReverseGeocodeResult {
-  id: string;
-  lat: number;
-  lon: number;
-}
-
 interface MapDB extends DB {
   geodata_places_tmp: GeodataPlacesTable;
   naturalearth_countries_tmp: NaturalEarthCountriesTable;
@@ -84,8 +78,9 @@ export class MapRepository {
       .execute();
   }
 
-  @GenerateSql({ params: [[DummyValue.UUID], [DummyValue.UUID]] })
+  @GenerateSql({ params: [DummyValue.UUID, [DummyValue.UUID], [DummyValue.UUID]] })
   getMapMarkers(
+    authUserId: string,
     ownerIds: string[],
     albumIds: string[],
     { isArchived, isFavorite, fileCreatedAfter, fileCreatedBefore }: MapMarkerSearchOptions = {},
@@ -95,7 +90,7 @@ export class MapRepository {
         qb.where((eb) =>
           eb.or([
             eb('asset.visibility', '=', AssetVisibility.Timeline),
-            eb('asset.visibility', '=', AssetVisibility.Archive),
+            eb.and([eb('asset.ownerId', '=', authUserId), eb('asset.visibility', '=', AssetVisibility.Archive)]),
           ]),
         ),
       )

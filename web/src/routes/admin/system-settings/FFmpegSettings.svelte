@@ -1,9 +1,9 @@
 <script lang="ts">
-  import SettingAccordion from '$lib/components/shared-components/settings/setting-accordion.svelte';
-  import SettingCheckboxes from './setting-checkboxes.svelte';
-  import SettingInputField from '$lib/components/shared-components/settings/setting-input-field.svelte';
-  import SettingSelect from './setting-select.svelte';
-  import SettingSwitch from '$lib/components/shared-components/settings/setting-switch.svelte';
+  import SettingAccordion from '$lib/components/shared-components/settings/SettingAccordion.svelte';
+  import SettingCheckboxes from './SettingCheckboxes.svelte';
+  import SettingInputField from '$lib/components/shared-components/settings/SettingInputField.svelte';
+  import SettingSelect from './SettingSelect.svelte';
+  import SettingSwitch from '$lib/components/shared-components/settings/SettingSwitch.svelte';
   import SettingButtonsRow from '$lib/components/shared-components/settings/SystemConfigButtonRow.svelte';
   import { SettingInputFieldType } from '$lib/constants';
   import FormatMessage from '$lib/elements/FormatMessage.svelte';
@@ -88,6 +88,7 @@
               desc={$t('admin.transcoding_accepted_video_codecs_description')}
               bind:value={configToEdit.ffmpeg.acceptedVideoCodecs}
               name="videoCodecs"
+              lockedOptions={[configToEdit.ffmpeg.targetVideoCodec]}
               options={[
                 { value: VideoCodec.H264, text: 'H.264' },
                 { value: VideoCodec.Hevc, text: 'HEVC' },
@@ -106,6 +107,7 @@
               desc={$t('admin.transcoding_accepted_audio_codecs_description')}
               bind:value={configToEdit.ffmpeg.acceptedAudioCodecs}
               name="audioCodecs"
+              lockedOptions={[configToEdit.ffmpeg.targetAudioCodec]}
               options={[
                 { value: AudioCodec.Aac, text: 'AAC' },
                 { value: AudioCodec.Mp3, text: 'MP3' },
@@ -384,6 +386,22 @@
               description={$t('admin.transcoding_max_keyframe_interval_description')}
               bind:value={configToEdit.ffmpeg.gopSize}
               isEdited={configToEdit.ffmpeg.gopSize !== config.ffmpeg.gopSize}
+              {disabled}
+            />
+          </div>
+        </SettingAccordion>
+
+        <SettingAccordion
+          key="realtime-transcoding"
+          title={$t('admin.transcoding_realtime')}
+          subtitle={$t('admin.transcoding_realtime_description')}
+        >
+          <div class="ms-4 mt-4 flex flex-col gap-4">
+            <SettingSwitch
+              title={$t('admin.transcoding_realtime_enabled')}
+              subtitle={$t('admin.transcoding_realtime_enabled_description')}
+              bind:checked={configToEdit.ffmpeg.realtime.enabled}
+              isEdited={configToEdit.ffmpeg.realtime.enabled !== configToEdit.ffmpeg.realtime.enabled}
               {disabled}
             />
           </div>

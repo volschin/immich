@@ -216,7 +216,7 @@ data class PlatformAsset (
   val updatedAt: Long? = null,
   val width: Long? = null,
   val height: Long? = null,
-  val durationInSeconds: Long,
+  val durationMs: Long,
   val orientation: Long,
   val isFavorite: Boolean,
   val adjustmentTime: Long? = null,
@@ -234,14 +234,14 @@ data class PlatformAsset (
       val updatedAt = pigeonVar_list[4] as Long?
       val width = pigeonVar_list[5] as Long?
       val height = pigeonVar_list[6] as Long?
-      val durationInSeconds = pigeonVar_list[7] as Long
+      val durationMs = pigeonVar_list[7] as Long
       val orientation = pigeonVar_list[8] as Long
       val isFavorite = pigeonVar_list[9] as Boolean
       val adjustmentTime = pigeonVar_list[10] as Long?
       val latitude = pigeonVar_list[11] as Double?
       val longitude = pigeonVar_list[12] as Double?
       val playbackStyle = pigeonVar_list[13] as PlatformAssetPlaybackStyle
-      return PlatformAsset(id, name, type, createdAt, updatedAt, width, height, durationInSeconds, orientation, isFavorite, adjustmentTime, latitude, longitude, playbackStyle)
+      return PlatformAsset(id, name, type, createdAt, updatedAt, width, height, durationMs, orientation, isFavorite, adjustmentTime, latitude, longitude, playbackStyle)
     }
   }
   fun toList(): List<Any?> {
@@ -253,7 +253,7 @@ data class PlatformAsset (
       updatedAt,
       width,
       height,
-      durationInSeconds,
+      durationMs,
       orientation,
       isFavorite,
       adjustmentTime,
@@ -270,7 +270,7 @@ data class PlatformAsset (
       return true
     }
     val other = other as PlatformAsset
-    return MessagesPigeonUtils.deepEquals(this.id, other.id) && MessagesPigeonUtils.deepEquals(this.name, other.name) && MessagesPigeonUtils.deepEquals(this.type, other.type) && MessagesPigeonUtils.deepEquals(this.createdAt, other.createdAt) && MessagesPigeonUtils.deepEquals(this.updatedAt, other.updatedAt) && MessagesPigeonUtils.deepEquals(this.width, other.width) && MessagesPigeonUtils.deepEquals(this.height, other.height) && MessagesPigeonUtils.deepEquals(this.durationInSeconds, other.durationInSeconds) && MessagesPigeonUtils.deepEquals(this.orientation, other.orientation) && MessagesPigeonUtils.deepEquals(this.isFavorite, other.isFavorite) && MessagesPigeonUtils.deepEquals(this.adjustmentTime, other.adjustmentTime) && MessagesPigeonUtils.deepEquals(this.latitude, other.latitude) && MessagesPigeonUtils.deepEquals(this.longitude, other.longitude) && MessagesPigeonUtils.deepEquals(this.playbackStyle, other.playbackStyle)
+    return MessagesPigeonUtils.deepEquals(this.id, other.id) && MessagesPigeonUtils.deepEquals(this.name, other.name) && MessagesPigeonUtils.deepEquals(this.type, other.type) && MessagesPigeonUtils.deepEquals(this.createdAt, other.createdAt) && MessagesPigeonUtils.deepEquals(this.updatedAt, other.updatedAt) && MessagesPigeonUtils.deepEquals(this.width, other.width) && MessagesPigeonUtils.deepEquals(this.height, other.height) && MessagesPigeonUtils.deepEquals(this.durationMs, other.durationMs) && MessagesPigeonUtils.deepEquals(this.orientation, other.orientation) && MessagesPigeonUtils.deepEquals(this.isFavorite, other.isFavorite) && MessagesPigeonUtils.deepEquals(this.adjustmentTime, other.adjustmentTime) && MessagesPigeonUtils.deepEquals(this.latitude, other.latitude) && MessagesPigeonUtils.deepEquals(this.longitude, other.longitude) && MessagesPigeonUtils.deepEquals(this.playbackStyle, other.playbackStyle)
   }
 
   override fun hashCode(): Int {
@@ -282,7 +282,7 @@ data class PlatformAsset (
     result = 31 * result + MessagesPigeonUtils.deepHash(this.updatedAt)
     result = 31 * result + MessagesPigeonUtils.deepHash(this.width)
     result = 31 * result + MessagesPigeonUtils.deepHash(this.height)
-    result = 31 * result + MessagesPigeonUtils.deepHash(this.durationInSeconds)
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.durationMs)
     result = 31 * result + MessagesPigeonUtils.deepHash(this.orientation)
     result = 31 * result + MessagesPigeonUtils.deepHash(this.isFavorite)
     result = 31 * result + MessagesPigeonUtils.deepHash(this.adjustmentTime)
@@ -542,17 +542,19 @@ private open class MessagesPigeonCodec : StandardMessageCodec() {
 
 /** Generated interface from Pigeon that represents a handler of messages from Flutter. */
 interface NativeSyncApi {
-  fun shouldFullSync(): Boolean
-  fun getMediaChanges(): SyncDelta
+  fun shouldFullSync(callback: (Result<Boolean>) -> Unit)
+  fun getMediaChanges(callback: (Result<SyncDelta>) -> Unit)
   fun checkpointSync()
   fun clearSyncCheckpoint()
-  fun getAssetIdsForAlbum(albumId: String): List<String>
-  fun getAlbums(): List<PlatformAlbum>
+  fun getAssetIdsForAlbum(albumId: String, callback: (Result<List<String>>) -> Unit)
+  fun getAlbums(callback: (Result<List<PlatformAlbum>>) -> Unit)
   fun getAssetsCountSince(albumId: String, timestamp: Long): Long
-  fun getAssetsForAlbum(albumId: String, updatedTimeCond: Long?): List<PlatformAsset>
+  fun getAssetsForAlbum(albumId: String, updatedTimeCond: Long?, callback: (Result<List<PlatformAsset>>) -> Unit)
   fun hashAssets(assetIds: List<String>, allowNetworkAccess: Boolean, callback: (Result<List<HashResult>>) -> Unit)
   fun cancelHashing()
+  fun cancelSync()
   fun getTrashedAssets(): Map<String, List<PlatformAsset>>
+  fun restoreFromTrashById(mediaId: String, type: Long, callback: (Result<Boolean>) -> Unit)
   fun getCloudIdForAssetIds(assetIds: List<String>): List<CloudIdResult>
 
   companion object {
@@ -569,27 +571,33 @@ interface NativeSyncApi {
         val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.immich_mobile.NativeSyncApi.shouldFullSync$separatedMessageChannelSuffix", codec)
         if (api != null) {
           channel.setMessageHandler { _, reply ->
-            val wrapped: List<Any?> = try {
-              listOf(api.shouldFullSync())
-            } catch (exception: Throwable) {
-              MessagesPigeonUtils.wrapError(exception)
+            api.shouldFullSync{ result: Result<Boolean> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(MessagesPigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(MessagesPigeonUtils.wrapResult(data))
+              }
             }
-            reply.reply(wrapped)
           }
         } else {
           channel.setMessageHandler(null)
         }
       }
       run {
-        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.immich_mobile.NativeSyncApi.getMediaChanges$separatedMessageChannelSuffix", codec, taskQueue)
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.immich_mobile.NativeSyncApi.getMediaChanges$separatedMessageChannelSuffix", codec)
         if (api != null) {
           channel.setMessageHandler { _, reply ->
-            val wrapped: List<Any?> = try {
-              listOf(api.getMediaChanges())
-            } catch (exception: Throwable) {
-              MessagesPigeonUtils.wrapError(exception)
+            api.getMediaChanges{ result: Result<SyncDelta> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(MessagesPigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(MessagesPigeonUtils.wrapResult(data))
+              }
             }
-            reply.reply(wrapped)
           }
         } else {
           channel.setMessageHandler(null)
@@ -628,32 +636,38 @@ interface NativeSyncApi {
         }
       }
       run {
-        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.immich_mobile.NativeSyncApi.getAssetIdsForAlbum$separatedMessageChannelSuffix", codec, taskQueue)
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.immich_mobile.NativeSyncApi.getAssetIdsForAlbum$separatedMessageChannelSuffix", codec)
         if (api != null) {
           channel.setMessageHandler { message, reply ->
             val args = message as List<Any?>
             val albumIdArg = args[0] as String
-            val wrapped: List<Any?> = try {
-              listOf(api.getAssetIdsForAlbum(albumIdArg))
-            } catch (exception: Throwable) {
-              MessagesPigeonUtils.wrapError(exception)
+            api.getAssetIdsForAlbum(albumIdArg) { result: Result<List<String>> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(MessagesPigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(MessagesPigeonUtils.wrapResult(data))
+              }
             }
-            reply.reply(wrapped)
           }
         } else {
           channel.setMessageHandler(null)
         }
       }
       run {
-        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.immich_mobile.NativeSyncApi.getAlbums$separatedMessageChannelSuffix", codec, taskQueue)
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.immich_mobile.NativeSyncApi.getAlbums$separatedMessageChannelSuffix", codec)
         if (api != null) {
           channel.setMessageHandler { _, reply ->
-            val wrapped: List<Any?> = try {
-              listOf(api.getAlbums())
-            } catch (exception: Throwable) {
-              MessagesPigeonUtils.wrapError(exception)
+            api.getAlbums{ result: Result<List<PlatformAlbum>> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(MessagesPigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(MessagesPigeonUtils.wrapResult(data))
+              }
             }
-            reply.reply(wrapped)
           }
         } else {
           channel.setMessageHandler(null)
@@ -678,18 +692,21 @@ interface NativeSyncApi {
         }
       }
       run {
-        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.immich_mobile.NativeSyncApi.getAssetsForAlbum$separatedMessageChannelSuffix", codec, taskQueue)
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.immich_mobile.NativeSyncApi.getAssetsForAlbum$separatedMessageChannelSuffix", codec)
         if (api != null) {
           channel.setMessageHandler { message, reply ->
             val args = message as List<Any?>
             val albumIdArg = args[0] as String
             val updatedTimeCondArg = args[1] as Long?
-            val wrapped: List<Any?> = try {
-              listOf(api.getAssetsForAlbum(albumIdArg, updatedTimeCondArg))
-            } catch (exception: Throwable) {
-              MessagesPigeonUtils.wrapError(exception)
+            api.getAssetsForAlbum(albumIdArg, updatedTimeCondArg) { result: Result<List<PlatformAsset>> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(MessagesPigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(MessagesPigeonUtils.wrapResult(data))
+              }
             }
-            reply.reply(wrapped)
           }
         } else {
           channel.setMessageHandler(null)
@@ -733,6 +750,22 @@ interface NativeSyncApi {
         }
       }
       run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.immich_mobile.NativeSyncApi.cancelSync$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            val wrapped: List<Any?> = try {
+              api.cancelSync()
+              listOf(null)
+            } catch (exception: Throwable) {
+              MessagesPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
         val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.immich_mobile.NativeSyncApi.getTrashedAssets$separatedMessageChannelSuffix", codec, taskQueue)
         if (api != null) {
           channel.setMessageHandler { _, reply ->
@@ -742,6 +775,27 @@ interface NativeSyncApi {
               MessagesPigeonUtils.wrapError(exception)
             }
             reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.immich_mobile.NativeSyncApi.restoreFromTrashById$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val mediaIdArg = args[0] as String
+            val typeArg = args[1] as Long
+            api.restoreFromTrashById(mediaIdArg, typeArg) { result: Result<Boolean> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(MessagesPigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(MessagesPigeonUtils.wrapResult(data))
+              }
+            }
           }
         } else {
           channel.setMessageHandler(null)
